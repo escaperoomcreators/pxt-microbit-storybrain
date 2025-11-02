@@ -1238,18 +1238,26 @@ namespace storybrain {
         }
     }
 
+    /**
+     * Information about a room element that is registered with the brain.
+     */
     class RoomElement {
         name: string;
         lastCheckInTime: number;  // Millis since power on.
         image: RoomElementImage;
         fresh: boolean;
         changedState: boolean;
+        recentUncheckedMessage: boolean;
+        private _lastUncheckedMessageTime: number;  // Millis since power on.
+        uncheckedMessageFreshness: number;
 
         constructor(name: string, imageCode: string = null) {
             this.name = name;
             this.image = new RoomElementImage(imageCode);
             this.fresh = true;
             this.changedState = true;
+            this.recentUncheckedMessage = false;
+            this.uncheckedMessageFreshness = 0;
             this.checkIn();
         }
 
@@ -1261,6 +1269,11 @@ namespace storybrain {
             }
         }
 
+        markUncheckedMessageReceived() {
+            this._lastUncheckedMessageTime = control.millis();
+            this.recentUncheckedMessage = true;
+        }
+
         // Call after updating widget on screen.
         update() {
             this.changedState = false;
@@ -1268,6 +1281,13 @@ namespace storybrain {
                 if (control.millis() - this.lastCheckInTime > 8000) {
                     this.fresh = false;
                     this.changedState = true;
+                }
+            }
+            if (this.recentUncheckedMessage) {
+                if (control.millis() - this._lastUncheckedMessageTime < 4000) {
+                    this.uncheckedMessageFreshness = (4000 - (control.millis() - this._lastUncheckedMessageTime)) * 255 / 4000;
+                } else {
+                    this.recentUncheckedMessage = false;
                 }
             }
         }
@@ -1450,7 +1470,13 @@ namespace storybrain {
                 return;
             }
         }
-        uncheckedStoryMessages.unshift(new StoryMessage(messageParts[1], messageParts[2]));
+        uncheckedStoryMessages.unshift(new StoryMessage(messageParts[1], messageParts[2]));        
+        // Mark the sender element as having a recent unchecked message (for visuals only).
+        for (let element of registeredElements) {
+            if (element.name.toUpperCase() === messageParts[1].toUpperCase()) {
+                element.markUncheckedMessageReceived();
+            }
+        }
     });
 
     // Sets up the story brain with a room name and radio group unique in the vicinity.
@@ -1466,32 +1492,7 @@ namespace storybrain {
         startInitializationTime = control.millis();
     }
 
-    // Test code
-    /*
-    registerElement('box', 'box');
-    registerElement('btns', 'press');
-    registerElement('hmmm');
-    registerElement('tes2');
-    registerElement('tes3');
-    registerElement('tes4');
-    registerElement('tes5');
-    registerElement('tes6');
-    registerElement('tes7');
-    registerElement('tes8');
-    registerElement('tes9');
-    registerElement('tes10');
-    registerElement('tes11');
-    registerElement('tes12');
-    registerElement('tes13');
-    registerElement('tes14');
-    registerElement('tes15');
-    registerElement('tes16');
-    registerElement('tes17');
-    uncheckedStoryMessages.unshift(new StoryMessage('box', 'hello'));
-    uncheckedStoryMessages.unshift(new StoryMessage('btns', 'yo'));
-    uncheckedStoryMessages.unshift(new StoryMessage('hmmm', 'hi!'));
-    */
-
+    // Update display in background.
     basic.forever(function () {
         basic.pause(200);
 
@@ -1506,41 +1507,37 @@ namespace storybrain {
         // Update elements on screen.
         updatingScreen = true;
         for (let i = 0; i < registeredElements.length; i++) {
-            let widgetOrder = (i + 1) * 3;
-            if (registeredElements[i].changedState) {
-                let path;
-                let textColour;
-                if (registeredElements[i].fresh) {
-                    path = registeredElements[i].image.getFilePath();
-                    textColour = lcdGetRgbColor(255, 255, 255)
+            if (i < 20) {
+                let widgetOrder = (i + 1) * 3;
+                if (registeredElements[i].changedState) {
+                    let path;
+                    let textColour;
+                    if (registeredElements[i].fresh) {
+                        path = registeredElements[i].image.getFilePath();
+                        textColour = lcdGetRgbColor(255, 255, 255)
+                    } else {
+                        path = registeredElements[i].image.getFilePath(false);
+                        textColour = lcdGetRgbColor(128, 128, 128)
+                    }
+                    lcdDisplayImage(widgetOrder, path, getIconXPlacement(i), getIconYPlacement(i), 255);
+                    basic.pause(5);  // Pause added to avoid overload in communication with screen.
+                    lcdDisplayText(registeredElements[i].name, widgetOrder + 1, getIconXPlacement(i) + 6, getIconYPlacement(i) + 46 - 2 - 18, FontSize.Small, textColour);
+                    basic.pause(5);  // Pause added to avoid overload in communication with screen.
+                }
+                // Draw a line if there is an unchecked message from that element.
+                if (registeredElements[i].recentUncheckedMessage) {
+                    lcdDrawLine(widgetOrder + 2, getIconXPlacement(i) + 23, getIconYPlacement(i) + 23, 159, 119, 5, lcdGetRgbColor(0, registeredElements[i].uncheckedMessageFreshness, 0));                    
                 } else {
-                    path = registeredElements[i].image.getFilePath(false);
-                    textColour = lcdGetRgbColor(128, 128, 128)
+                    lcdDeleteWidget(LCDWidgetCategoryTwo.Line, widgetOrder + 2);
                 }
-                lcdDisplayImage(widgetOrder, path, getIconXPlacement(i), getIconYPlacement(i), 255);
-                basic.pause(5);  // Pause added to avoid overload in communication with screen.
-                lcdDisplayText(registeredElements[i].name, widgetOrder + 1, getIconXPlacement(i) + 6, getIconYPlacement(i) + 46 - 2 - 18, FontSize.Small, textColour);
-                basic.pause(5);  // Pause added to avoid overload in communication with screen.
-            }
-            // Draw a line if there is an unchecked message from that element.
-            let lineToDraw = false;
-            for (let message of uncheckedStoryMessages) {
-                if (message.sender.toUpperCase() == registeredElements[i].name.toUpperCase()) {
-                    lineToDraw = true;
-                }
-            }
-            if (lineToDraw) {
-                lcdDrawLine(widgetOrder + 2, getIconXPlacement(i) + 23, getIconYPlacement(i) + 23, 159, 119, 5, lcdGetRgbColor(0, 255, 0));
-            } else {
-                lcdDeleteWidget(LCDWidgetCategoryTwo.Line, widgetOrder + 2);
             }
             registeredElements[i].update();
-            // Custom status display.
-            if (statusText.length > 0) {
-                lcdDisplayText(statusText, 200, 72, 166, FontSize.Small, statusColour);
-            } else {
-                lcdDeleteWidget(LCDWidgetCategoryTwo.Text, 200);
-            }
+        }
+        // Custom status display.
+        if (statusText.length > 0) {
+            lcdDisplayText(statusText, 200, 72, 166, FontSize.Small, statusColour);
+        } else {
+            lcdDeleteWidget(LCDWidgetCategoryTwo.Text, 200);
         }
         updatingScreen = false;
     })
