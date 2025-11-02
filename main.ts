@@ -1398,7 +1398,7 @@ namespace storybrain {
     // Ensures that an element is kept up to date in the registeredElements array.
     function registerElement(name: string, imageCode: string = null) {
         for (let element of registeredElements) {
-            if (element.name.toUpperCase() === name) {
+            if (element.name.toUpperCase() === name.toUpperCase()) {
                 element.checkIn();
                 return;
             }
